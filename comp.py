@@ -50,10 +50,6 @@ def where():
     else:
         return ""
 
-def del_variable(id):
-    values_declared.pop(id)
-    return ""
-
 def declare_value(id,lineno):
     if id in values_declared:
         raise Exception("deklaracja " + id +" już istnieje linia - "+lineno)
@@ -208,7 +204,6 @@ def p_ifelse_command(p):
     '''command : IF condition THEN commands ELSE commands ENDIF '''
     condition, commands_if, commands_else, lineno = p[2], p[4], p[6], str(p.lineno(1))
     here,jump = add_placestojump(1)
-    print("jestem tu" +p[2][1]+p[4])
 
     p[0] =	condition[0] +\
 			commands_if +\
@@ -220,7 +215,6 @@ def p_ifelse_command(p):
 def p_if_command(p):
     '''command : IF condition THEN commands ENDIF'''
     condition, commands_if, lineno = p[2], p[4], str(p.lineno(1))
-    print("jestem tu" +p[2][1]+p[4])
 
     p[0] =	condition[0] +\
 			commands_if +\
@@ -332,8 +326,6 @@ def p_expression_value(p):
 def p_expression_plus(p):
     ''' expression : value PLUS value '''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    print(initializations)
-    print(values_declared)
     p[0] = load_value(value1, 6, lineno) + \
            load_value(value2, 0, lineno) + \
            "ADD 6 \n" + \
@@ -756,13 +748,6 @@ def replace_jumps(program):
             line = re.sub("#J[0-9]+#", str(jump_line), line)
         removed_jumps += line + "\n"
     return removed_jumps
-
-
-def get_var_index(var_name, lineno):
-	if var_name not in values_declared:
-		raise Exception('Variable error!'+var_name)
-	else:
-		return values_declared[var_name] if initializations[var_name] else "xd"
 
 parser = yacc.yacc()
 f = open(sys.argv[1], "r")
