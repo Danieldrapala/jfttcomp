@@ -144,16 +144,16 @@ def p_program_without_declarations(p):          #ok
 
 def p_declaring_array(p):
     ''' declarations : declarations COMMA ID LBR NUM COLON NUM RBR  '''          #ok
-    declare_array(p[3], p[5], p[7], str(p.lineno))
+    declare_array(p[3], p[5], p[7], str(p.lineno(1)))
 
 
 def p_declaring_variable(p):
     ''' declarations : declarations COMMA ID  '''    #ok
-    declare_value(p[3], str(p.lineno))
+    declare_value(p[3], str(p.lineno(1)))
 
 def p_declaring_array_end(p):
     ''' declarations :  ID LBR NUM COLON NUM RBR  '''          #ok
-    declare_array(p[1], p[3], p[5], str(p.lineno))
+    declare_array(p[1], p[3], p[5], str(p.lineno(1)))
 
 
 def p_declaring_variable_end(p):
