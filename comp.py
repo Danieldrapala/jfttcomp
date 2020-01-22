@@ -42,18 +42,11 @@ negone = "SUB 0 \n DEC \n STORE 2 \n"
 # 0 - komórka ALU
 
 #debug
-debug = 1
+debug = 0
 
-def begin(str):
+def where():
     if debug == 1:
-        return "##BEGIN " + str + "\n"
-    else:
-        return ""
-
-
-def end(str):
-    if debug == 1:
-        return "##END " + str + "\n"
+        return "PUT "  + "\n"
     else:
         return ""
 
@@ -97,6 +90,44 @@ def generate_const_and_Store(num, memoryplace):
 
 
 
+
+def load_value(value,pos,lineno):
+    if value[0] == "n":
+        return str(generate_const_and_Store(int(value[1]), pos))
+    if value[0] == "id"  or value[0]=="it":
+        isvalueinit(value[1], lineno)
+        stri=("STORE " + str(pos) + "\n") if pos != 0 else ""
+        return str(load_value_addr(value, lineno)) + \
+           "LOADI 4"   + "\n" + \
+            stri
+    if value[0] == "tab":
+        isvalueinit(value[1], lineno)
+        stri = ("STORE " + str(pos) + "\n") if pos != 0 else ""
+        return str(load_value_addr(value, lineno)) + \
+               "LOADI 4" + "\n" + \
+               stri
+def load_value_addr(value,lineno):
+    if value[0] == "id" or value[0]=="it":
+
+        isvaluedeclared(value[1], lineno)
+        return str(generate_const_and_Store(values_declared[value[1]], 4))
+    elif value[0] == "tab":
+        isarraydeclared(value[1], lineno)
+        tab_pos, tab_start, tab_stop = arrays_declared[value[1]]
+        cell_index = value[2]
+        return str(load_value(cell_index, 3, lineno)) + \
+               str(generate_const_and_Store(tab_start, 5)) + \
+               "SUB 0 " + "\n" + \
+               "LOAD 3 " + "\n" + \
+               "SUB 5" + "\n" + \
+               "STORE 3" + "\n" + \
+               str(generate_const_and_Store(tab_pos, 5)) + \
+               "SUB 0 " + "\n" + \
+               "LOAD 3" + "\n" + \
+               "ADD 5" + "\n" + \
+               "STORE 4" + "\n"
+
+
 # Program ->
 def p_program_with_declarations(p):
     ''' program : DECLARE declarations BEGIN commands END '''
@@ -113,16 +144,16 @@ def p_program_without_declarations(p):          #ok
 
 def p_declaring_array(p):
     ''' declarations : declarations COMMA ID LBR NUM COLON NUM RBR  '''          #ok
-    declare_array(p[3], p[5], p[7], str(p.lineno))
+    declare_array(p[3], p[5], p[7], str(p.lineno(1)))
 
 
 def p_declaring_variable(p):
     ''' declarations : declarations COMMA ID  '''    #ok
-    declare_value(p[3], str(p.lineno))
+    declare_value(p[3], str(p.lineno(1)))
 
 def p_declaring_array_end(p):
     ''' declarations :  ID LBR NUM COLON NUM RBR  '''          #ok
-    declare_array(p[1], p[3], p[5], str(p.lineno))
+    declare_array(p[1], p[3], p[5], str(p.lineno(1)))
 
 
 def p_declaring_variable_end(p):
@@ -146,121 +177,142 @@ def p_commands_single(p):
 
 def p_read_command(p):             #ok
     ''' command : READ identifier SEMICOLON '''
-    id,lineno=p[2],str(p.lineno)
-    p[0] = begin("READ") +\
-           load_value_addr(id, lineno) +\
+    id,lineno=p[2],str(p.lineno(1))
+    p[0] = load_value_addr(id, lineno) +\
            "GET \n" +\
-           "STOREI 4  \n" +\
-           end("READ")
+           "STOREI 4  \n"
     initializations[id[1]] = True;
 
-def p_write_command(p):
+def p_write_command(p):         #ok
     ''' command : WRITE value SEMICOLON '''
-    value, lineno = p[2], str(p.lineno)
-    p[0] = begin("WRITE") +\
-            str(load_value(value, 0, lineno)) +\
-            "PUT \n" + \
-           end("WRITE")
+    value, lineno = p[2], str(p.lineno(1))
+    p[0] = str(load_value(value, 0, lineno)) +\
+            "PUT \n"
+
 # Stream in and out END #
 # ASSIGN
-def p_assigning_command(p):  # chcę mieć w 3 komórce liczbę
+def p_assigning_command(p):  # chcę mieć w 20 komórce liczbę
     ''' command : identifier ASSIGN expression SEMICOLON '''
     identifier, expression, lineno = p[1], p[3], str(p.lineno(1))
-    p[0] = begin("ASSIGN") + \
-           expression + \
+    p[0] = expression + \
            str(load_value_addr(identifier, lineno)) + \
            "LOAD 20\n" + \
-           "STOREI 4\n" + \
-           end("ASSIGN")
+           "STOREI 4\n"
     initializations[identifier[1]] = True
 
 def p_ifelse_command(p):
-    '''command: IF condition THEN commands ELSE commands ENDIF '''
+    '''command : IF condition THEN commands ELSE commands ENDIF '''
     condition, commands_if, commands_else, lineno = p[2], p[4], p[6], str(p.lineno(1))
-    labels, jumps = add_comments_for_jumps(1)
-    p[0] =	begin("IF_ELSE") +\
-			condition[0] +\
+    here,jump = add_placestojump(1)
+
+    p[0] =	condition[0] +\
 			commands_if +\
-			"JUMP " + jumps[0] + "\n" +\
+			"JUMP " + jump[0] + "\n" +\
 			condition[1] +\
 			commands_else +\
-			labels[0] +\
-			end("IF_ELSE")
+			here[0]
 
 def p_if_command(p):
-    '''command: IF condition THEN commands ENDIF'''
+    '''command : IF condition THEN commands ENDIF'''
     condition, commands_if, lineno = p[2], p[4], str(p.lineno(1))
-    p[0] =	begin("IF") +\
-			condition[0] +\
+
+    p[0] =	condition[0] +\
 			commands_if +\
-			condition[1] +\
-			end("IF")
+			condition[1]
 
 def p_whiledo_command(p):
-    '''command: WHILE condition DO commands ENDWHILE'''
+    '''command : WHILE condition DO commands ENDWHILE'''
     condition, commands, lineno = p[2], p[4], str(p.lineno(1))
-    here, jump = add_comments_for_jumps(1)
-    p[0] = begin("WHILEDO") +\
-        here[0] +\
+    here,jump=add_placestojump(1)
+    p[0] =  here[0] +\
         condition[0] +\
         commands +\
         "JUMP" +jump[0] + "\n" +\
-        condition[1] +\
-        end("WHILEDO")
+        condition[1]
 
 
 def p_dowhile_command(p):
-    '''command: DO commands WHILE condition ENDDO'''
+    '''command : DO commands WHILE condition ENDDO'''
     commands, condition,  lineno = p[2], p[4], str(p.lineno(1))
-    here, jump = add_comments_for_jumps(1)
-    p[0] = begin("WHILEDO") + \
-        here[0] + \
+    here,jump = add_placestojump(1)
+    p[0] = here[0] + \
         commands +\
         condition[0] + \
         "JUMP" + jump[0] + "\n" + \
-        condition[1] + \
-        end("WHILEDO")
+        condition[1]
 
+
+def p_seen_ID(p):
+    "seen_ID :"
+    declare_value(p[-1], str(p.lineno))
+    initializations[p[-1]] = True
+    global memory_count
+    memory_count += 1
+    p[0] = 1  # Assign value to seen_A
 
 def p_for_command(p):
-    '''command: FOR ID FROM value TO value DO commands ENDFOR'''
+    '''command : FOR ID seen_ID FROM value TO value DO commands ENDFOR'''
+    id, val1,val2,commands,lineno=p[2],p[5],p[7],p[9],str(p.lineno(1))
+    here,jump=add_placestojump(3)
 
-
-def p_command_for_to(p):
-    '''command: FOR ID FROM value TO value DO commands ENDFOR'''
-    labels, jumps = add_multi_labels(3)
-    temp_var = add_temp_variable()
-    id_, start_val, stop_val, commands, lineno = p[2], p[4], p[6], p[8], str(p.lineno(1))
-    add_variable(id, lineno)
-    inits[id] = True
-    p[0] = begin("FOR") + \
-           load_value(stop_val, "G", lineno) + \
-           load_value_addr(("id", temp_var), lineno) + \
-           "STORE G\n" + \
-           load_value(start_val, "H", lineno) + \
-           load_value_addr(("id", iterator), lineno) + \
-           "STORE H\n" + \
-           labels[2] + \
-           load_value(("id", temp_var), "G", lineno) + \
-           load_value(("id", iterator), "H", lineno) + \
-           "SUB H G\n" + \
-           "JZERO H " + jumps[0] + "\n" + \
-           "JUMP " + jumps[1] + "\n" + \
-           labels[0] + commands + \
-           load_value(("id", iterator), "H", lineno) + \
-           "INC H\n" + \
-           load_value_addr(("id", iterator), lineno) + \
-           "STORE H\n" + \
-           "JUMP " + jumps[2] + "\n" + \
-           labels[1] + \
-           end("FOR")
-
-    del_variable(iterator)
-
+    p[0]=load_value(val2,14,lineno)+\
+        load_value_addr(("it",id),lineno)+\
+        "INC"+ "\n" + \
+         "STORE 4" + "\n" + \
+         "LOAD 14" + "\n" + \
+        "STOREI 4" + "\n" + \
+        load_value(val1,13,lineno)+\
+        load_value_addr(("it",id),lineno)+\
+        "LOAD 13" + "\n" + \
+        "STOREI 4"+ "\n" + \
+        here[0] +load_value(("it", id), 13, lineno) + \
+         "LOAD 4" + "\n" + \
+         "INC" + "\n" + \
+         "STORE 4" + "\n" + \
+        "LOADI 4"+"\n"+\
+         "SUB 13" + "\n"+\
+        "JPOS" +jump[1] +"\n"+\
+        "JZERO" +jump[1] +"\n"+\
+        "JUMP"+ jump[2] +"\n"+\
+        here[1] + commands + \
+        load_value(("it", id),0, lineno) + \
+        "INC \n" + \
+        "STOREI 4 \n" + \
+        "JUMP" +jump[0]+"\n"+\
+        here[2]
+    values_declared.pop(id)
 
 def p_fordownto_command(p):
-    '''command: FOR ID FROM value DOWNTO value DO commands ENDFOR'''
+    '''command : FOR ID seen_ID FROM value DOWNTO value DO commands ENDFOR'''
+    id, val1,val2,commands,lineno=p[2],p[5],p[7],p[9],str(p.lineno(1))
+    here,jump=add_placestojump(3)
 
+    p[0]=load_value(val2,14,lineno)+\
+        load_value_addr(("it",id),lineno)+\
+        "INC"+ "\n" + \
+         "STORE 4" + "\n" + \
+         "LOAD 14" + "\n" + \
+        "STOREI 4" + "\n" + \
+        load_value(val1,13,lineno)+\
+        load_value_addr(("it",id),lineno)+\
+        "LOAD 13" + "\n" + \
+        "STOREI 4"+ "\n" + \
+        here[0] +load_value(("it", id), 13, lineno) + \
+         "LOAD 4" + "\n" + \
+         "INC" + "\n" + \
+         "STORE 4" + "\n" + \
+        "LOADI 4"+"\n"+\
+         "SUB 13" + "\n"+\
+        "JNEG" +jump[1] +"\n"+ \
+         "JZERO" + jump[1] + "\n" + \
+        "JUMP"+ jump[2] +"\n"+\
+        here[1] + commands + \
+        load_value(("it", id),0, lineno) + \
+        "DEC \n" + \
+        "STOREI 4 \n" + \
+        "JUMP" +jump[0]+"\n"+\
+        here[2]
+    values_declared.pop(id)
 
 
 #                 KONIEC Pętli           ###
@@ -269,29 +321,23 @@ def p_fordownto_command(p):
 def p_expression_value(p):
     ''' expression : value '''
     value, lineno = p[1], str(p.lineno(1))
-    p[0] =	begin("SIMPLE_EXP") +\
-        str(load_value(value, 20, lineno)) +\
-        end("SIMPLE_EXP")
+    p[0] =	 str(load_value(value, 20, lineno))
 
 def p_expression_plus(p):
     ''' expression : value PLUS value '''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    p[0] = begin("PLUS") + \
-           load_value(value1, 6, lineno) + \
+    p[0] = load_value(value1, 6, lineno) + \
            load_value(value2, 0, lineno) + \
            "ADD 6 \n" + \
-           "STORE 20\n" + \
-           end("PLUS")
+           "STORE 20\n"
 
 def p_expression_minus(p):
         '''expression : value MINUS value'''
         value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-        p[0] = begin("MINUS") + \
-               load_value(value1, 6, lineno) + \
-               load_value(value2, 0, lineno) + \
+        p[0] = load_value(value2, 6, lineno) + \
+               load_value(value1, 0, lineno) + \
                "SUB 6 \n" + \
-                "STORE 20\n" + \
-               end("MINUS")
+                "STORE 20\n"
 
 def p_expression_times(p):
     '''expression : value TIMES value'''
@@ -299,11 +345,9 @@ def p_expression_times(p):
     # 8 czy ujemna ,
     # 9 10 na sprawdzanie mod 2
     # 20- wyniczek- chyba można usunąć
-    here = add_placestojump(6)
-    jump = add_jumps(6)
-    val1, val2, lineno = p[1],p[3], str(p.lineno)
-    p[0] = begin("TIMES") + \
-        "SUB 0 " + " \n" + \
+    here,jump = add_placestojump(6)
+    val1, val2, lineno = p[1],p[3], str(p.lineno(1))
+    p[0] = "SUB 0 " + " \n" + \
         "STORE 8 " + "\n" + \
         "STORE 20 " + "\n" + \
         load_value(val1, 6, lineno) + \
@@ -353,132 +397,197 @@ def p_expression_times(p):
         ""+here[3]+  " LOAD 20" + " \n" + \
         "SUB 0 " + " \n" + \
         "SUB 20 " + " \n" + \
-        "" + here[1] +\
-        end("TIMES")
+        "" + here[1]
+def p_expression_div(p):
+     ''' expression : value DIV value '''
+     valuedividing,divider, lineno= p[1],p[3], str(p.lineno(1))
+     here, jump = add_placestojump(14)
+     p[0]="SUB 0 " + " \n" + \
+    "STORE 8 " + "\n" + \
+    "STORE 9 " + "\n" + \
+    "STORE 12 " + "\n" + \
+    "STORE 20 " + "\n" + \
+    load_value(valuedividing, 6, lineno) + \
+    "JZERO " + jump[1]  +" \n" + \
+    "JPOS " + jump[2] + " \n" +\
+    "SUB 6 "+ " \n" + \
+    "SUB 6 " + " \n" + \
+    "STORE 6 " + " \n" + \
+    "SUB 0 " + " \n" + \
+    "INC " + " \n" + \
+    "STORE 8 " + " \n" + \
+    here[2] +  load_value(divider, 7, lineno) + \
+    "JZERO " + jump[1] + " \n" + \
+    "JPOS " + jump[4] + " \n" + \
+    "SUB 7 " + " \n" + \
+    "SUB 7 " + " \n" + \
+    "STORE 7 " + " \n" + \
+    "SUB 0 " + " \n" + \
+    "INC " + " \n" + \
+    "STORE 9" + " \n"  +\
+    here[4] + "LOAD 7 " + " \n" + \
+    "JNEG"+ jump[5]+ " \n" + \
+    "JZERO" +jump[5]+ " \n" + \
+    "SUB 6 " + " \n" + \
+    "JPOS " + jump[5] + " \n" + \
+    "LOAD 7" + " \n" + \
+    "SHIFT 1"+ " \n" + \
+    "STORE 7"+ " \n" + \
+    "LOAD 12"+ " \n" + \
+    "INC"+ " \n" + \
+    "STORE 12"+ " \n" + \
+    "JUMP"+ jump[4]+ " \n" + \
+    here[5] +"LOAD 12"+ " \n" + \
+    "JZERO"+ jump[3]+ " \n" + \
+    "DEC"+ " \n" + \
+    "STORE 12" +"\n" +\
+    "LOAD 7"+ " \n" + \
+    "SHIFT 2"+ " \n" + \
+    "STORE 7"+ " \n" + \
+    "SUB 6"+ " \n" + \
+    "JPOS "+jump[6]+ " \n" + \
+    "LOAD 6"+ " \n" + \
+    "SUB  7"+ " \n" + \
+    "STORE 6"+ " \n" + \
+    "LOAD 20"+ " \n" + \
+    "SHIFT 1"+ " \n" + \
+    "INC"+ " \n" + \
+    "STORE 20"+ " \n" + \
+    "JUMP"+ jump[5]+ " \n" + \
+    here[6]+ "LOAD 20"+ " \n" + \
+    "SHIFT 1" + " \n" + \
+    "STORE 20" + " \n" + \
+    "JUMP"+ jump[5]+ " \n" + \
+    here[3]+"LOAD 6"+ " \n" + \
+    "JZERO"+ jump[7]+ " \n" + \
+    "LOAD 9"+ " \n" + \
+    "JZERO"+ jump[11]+ " \n" + \
+    "ADD 8"+ " \n" + \
+    "DEC"+ " \n" + \
+    "JZERO"+ jump[12]+ " \n" + \
+    "LOAD 20" + " \n" + \
+    "JUMP"+ jump[1]+ " \n" + \
+    here[12] +"LOAD 20"+ " \n" + \
+    "SUB 0"+ " \n" + \
+    "SUB 20"+ " \n" + \
+    "DEC"+ " \n" + \
+    "STORE 20"+ " \n" + \
+    "JUMP"+ jump[10]+ " \n" + \
+    here[11] + "LOAD 8" + " \n" + \
+    "JZERO " +jump[13]+ " \n" + \
+    "LOAD 20" + " \n" + \
+    "SUB 0" + " \n" + \
+    "SUB 20" + " \n" + \
+    "DEC"+ " \n" + \
+    "STORE 20"+ " \n" + \
+    "JUMP" +jump[10]+ " \n" + \
+    here[13] +     "LOAD 20" + " \n" + \
+    "JUMP" +jump[10] + " \n" + \
+    here[7] +  "LOAD 9"+ " \n" + \
+    "ADD 8"+ " \n" + \
+    "DEC"+ " \n" + \
+    "JZERO" +jump[9] + " \n" + \
+    "LOAD 20" + " \n" + \
+    "JUMP "+jump[10]+ " \n" + \
+    here[9]+"LOAD 20"+ " \n" + \
+    "SUB 0"+ " \n" + \
+    "SUB 20"+ " \n" + \
+    here[1]+"STORE 20"+ " \n" + \
+    here[10]
 
-# def p_expression_div(p):
-#     ''' expression : value DIV value'''
-#     valuedividing,divider, lineno= p[1],p[3], p.lineno
-#     here, jump = add_comments_for_jumps(6)
-#     #8 -znak a 9 znak b 10 mnożenie reszty
-#     p[0]=begin("TIMES") + \
-#     "SUB 0 " + " \n" + \
-#     "STORE 8 " + "\n" + \
-#     "STORE 9 " + "\n" + \
-#     "STORE 20 " + "\n" + \
-#     load_value(valuedividing, 6, lineno) + \
-#     "JZERO " + jump[1]  +" \n" + \
-#     "JPOS " + jump[2] + " \n" +\
-#     "SUB 6 "+ " \n" + \
-#     "SUB 6 " + " \n" + \
-#     "STORE 6 " + " \n" + \
-#     "SUB 0 " + " \n" + \
-#     "INC " + " \n" + \
-#     "STORE 8 " + " \n" + \
-#     here[2] +  load_value(divider, 7, lineno) + \
-#     "JZERO " + jump[1] + " \n" + \
-#     "JPOS " + jump[4] + " \n" + \
-#     "SUB 7 " + " \n" + \
-#     "SUB 7 " + " \n" + \
-#     "STORE 7 " + " \n" + \
-#     "SUB 0 " + " \n" + \
-#     "INC " + " \n" + \
-#     "STORE 9" + " \n" + \
-#     here[4] + "LOAD 7 " + " \n" + \
-#     "SHIFT 2" + " \n" + \
-#     "SHIFT 1 " + " \n" + \
-#     "SUB 7" + " \n" + \
-#     "STORE 9 " + " \n" + \
-#     "LOAD 6 " + " \n" + \
-#     "SHIFT 2" + " \n" + \
-#     "SHIFT 1 " + " \n" + \
-#     "SUB 6" + " \n" + \
-#     "ADD 9" + " \n" + \
-#     "JZERO " + jump[3] + " \n" + \
-#     "JZERO " + jump[5] + " \n" + \
-#     here[3] + "LOAD 7 " + " \n" + \
-#     "SHIFT 2" + " \n" + \
-#     "STORE 7" + " \n" + \
-#     "LOAD 6" + " \n" + \
-#     "SHIFT 2" + " \n" + \
-#     "STORE 6" + " \n" + \
-#     "SUB 0 " + " \n" + \
-#     "INC " + " \n" + \
-#     "STORE 10" + " \n"
-#
-# def p_expression_mod(p):
-#                 ''' expression : value MOD value'''
-#                 valuedividing, divider, lineno = p[1], p[3], p.lineno
-#                 here, jump = add_comments_for_jumps(6)
-#                 # 8 -znak a 9 znak b 10 mnożenie reszty
-#                 p[0] = begin("TIMES") + \
-#                        "SUB 0 " + " \n" + \
-#                        "STORE 8 " + "\n" + \
-#                        "STORE 9 " + "\n" + \
-#                        "STORE 20 " + "\n" + \
-#                        load_value(valuedividing, 6, lineno) + \
-#                        "JZERO " + jump[1] + " \n" + \
-#                        "JPOS " + jump[2] + " \n" + \
-#                        "SUB 6 " + " \n" + \
-#                        "SUB 6 " + " \n" + \
-#                        "STORE 6 " + " \n" + \
-#                        "SUB 0 " + " \n" + \
-#                        "INC " + " \n" + \
-#                        "STORE 8 " + " \n" + \
-#                        here[2] + load_value(divider, 7, lineno) + \
-#                        "JZERO " + jump[1] + " \n" + \
-#                        "JPOS " + jump[4] + " \n" + \
-#                        "SUB 7 " + " \n" + \
-#                        "SUB 7 " + " \n" + \
-#                        "STORE 7 " + " \n" + \
-#                        "SUB 0 " + " \n" + \
-#                        "INC " + " \n" + \
-#                        "STORE 9" + " \n" + \
-#                        here[4] + "LOAD 7 " + " \n" + \
-#                        "SHIFT 2" + " \n" + \
-#                        "SHIFT 1 " + " \n" + \
-#                        "SUB 7" + " \n" + \
-#                        "STORE 9 " + " \n" + \
-#                        "LOAD 6 " + " \n" + \
-#                        "SHIFT 2" + " \n" + \
-#                        "SHIFT 1 " + " \n" + \
-#                        "SUB 6" + " \n" + \
-#                        "ADD 9" + " \n" + \
-#                        "JZERO " + jump[3] + " \n" + \
-#                        "JZERO " + jump[5] + " \n" + \
-#                        here[3] + "LOAD 7 " + " \n" + \
-#                        "SHIFT 2" + " \n" + \
-#                        "STORE 7" + " \n" + \
-#                        "LOAD 6" + " \n" + \
-#                        "SHIFT 2" + " \n" + \
-#                        "STORE 6" + " \n" + \
-#                        "SUB 0 " + " \n" + \
-#                        "INC " + " \n" + \
-#                        "STORE 10" + " \n"
-#  \
-#                     # End #
-#
-#                 # condition jest tylko we WHILE oraz IF, chyba mogę tutaj ładować
+
+def p_expression_mod(p):
+    ''' expression : value MOD value'''
+    valuedividing, divider, lineno = p[1], p[3], str(p.lineno(1))
+    here, jump = add_placestojump(15)
+    p[0]="SUB 0 " + " \n" + \
+    "STORE 8 " + "\n" + \
+    "STORE 9 " + "\n" + \
+    "STORE 12 " + "\n" + \
+    "STORE 10 " + "\n" + \
+    "STORE 20 " + "\n" + \
+    load_value(valuedividing, 6, lineno) + \
+    "JZERO " + jump[1]  +" \n" + \
+    "JPOS " + jump[2] + " \n" +\
+    "SUB 6 "+ " \n" + \
+    "SUB 6 " + " \n" + \
+    "STORE 6 " + " \n" + \
+    "SUB 0 " + " \n" + \
+    "INC " + " \n" + \
+    "STORE 8 " + " \n" + \
+    here[2] +  load_value(divider, 7, lineno) + \
+    "JZERO " + jump[1] + " \n" + \
+    "JPOS " + jump[4] + " \n" + \
+    "SUB 7 " + " \n" + \
+    "SUB 7 " + " \n" + \
+    "STORE 7 " + " \n" + \
+    "SUB 0 " + " \n" + \
+    "INC " + " \n" + \
+    "STORE 9" + " \n"  +\
+     "LOAD 7 " + " \n" + \
+    here[4]+"STORE 10 " + " \n" + \
+    here[14] + "LOAD 7 " + " \n" + \
+    "JNEG"+ jump[5]+ " \n" + \
+    "JZERO" +jump[5]+ " \n" + \
+    "SUB 6 " + " \n" + \
+    "JPOS " + jump[5] + " \n" + \
+    "LOAD 7" + " \n" + \
+    "SHIFT 1"+ " \n" + \
+    "STORE 7"+ " \n" + \
+    "LOAD 12"+ " \n" + \
+    "INC"+ " \n" + \
+    "STORE 12"+ " \n" + \
+    "JUMP"+ jump[14]+ " \n" + \
+    here[5] +"LOAD 12"+ " \n" + \
+    "JZERO"+ jump[3]+ " \n" + \
+    "DEC"+ " \n" + \
+    "STORE 12" +"\n" +\
+    "LOAD 7"+ " \n" + \
+    "SHIFT 2"+ " \n" + \
+    "STORE 7"+ " \n" + \
+    "SUB 6"+ " \n" + \
+    "JPOS "+jump[6]+ " \n" + \
+    "LOAD 6"+ " \n" + \
+    "SUB  7"+ " \n" + \
+    "STORE 6"+ " \n" + \
+    here[6]+ "JUMP"+ jump[5]+ " \n" + \
+    here[3]+"LOAD 6"+ " \n" + \
+    "JZERO"+ jump[1]+ " \n" + \
+    "LOAD 9"+ " \n" + \
+    "JZERO"+ jump[11]+ " \n" + \
+    "LOAD 8"+ " \n" + \
+    "JZERO"+ jump[12]+ " \n" + \
+     "LOAD 6" + " \n" + \
+     "SUB 0"+ " \n" + \
+     "SUB 6" + " \n" + \
+     "JUMP"+ jump[1]+ " \n" + \
+    here[12] +"LOAD 6"+ " \n" + \
+    "SUB 10"+ " \n" + \
+    "JUMP"+ jump[1]+ " \n" + \
+     here[11] + "LOAD 8" + " \n" + \
+    "JZERO " +jump[13]+ " \n" + \
+    "LOAD 6" + " \n" + \
+    "SUB 10"+ " \n" + \
+    "STORE 6" + " \n" + \
+    "SUB 0"+ " \n" + \
+     "SUB 6" + " \n" + \
+    "JUMP" +jump[1]+ " \n" + \
+     here[13] + "LOAD 6" + " \n" + \
+     here[1]+"STORE 20"+ " \n"
 
 
 ### CONDITIONS ###
 def p_condition_equal(p):
     '''condition	: value EQ value'''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    here = add_placestojump(2)
-    jump = add_jumps(2)
-    firstpart=begin("EQ1") + \
-        load_value(value1, 6, lineno) + \
+    here,jump = add_placestojump(2)
+    firstpart = load_value(value1, 6, lineno) + \
         load_value(value2, 7, lineno) + \
         "SUB  6\n" + \
         "JZERO  " + jump[1] + "\n" + \
         "JUMP" + jump[0] +"\n" +\
-        here[1] +\
-        end("EQ1")
-
-    secondpart=begin("EQ2") + \
-        here[0] + \
-        end("EQ2")
+        here[1]
+    secondpart=here[0]
     p[0] = (firstpart,
             secondpart)
 
@@ -487,17 +596,12 @@ def p_condition_equal(p):
 def p_condition_notequal(p):
     '''condition	: value NEQ value'''
     v1, v2, lineno = p[1], p[3], str(p.lineno(1))
-    here = add_placestojump(1)
-    jump = add_jumps(1)
-    firstpart=begin("NEQ1") + \
-            load_value(v1, 6, lineno) + \
+    here,jump = add_placestojump(1)
+    firstpart = load_value(v1, 6, lineno) + \
             load_value(v2, 7, lineno) + \
             "SUB  6\n" + \
-            "JZERO  " + jump[0] + "\n" + \
-            end("NEQ1")
-    secondpart=begin("NEQ2") + \
-            here[0] + \
-            end("NEQ2")
+            "JZERO  " + jump[0] + "\n"
+    secondpart=here[0]
     p[0] = (firstpart,
             secondpart)
 
@@ -506,35 +610,25 @@ def p_condition_notequal(p):
 def p_condition_less(p):
     '''condition	: value LE value'''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    here = add_placestojump(1)
-    jump = add_jumps(1)
-    firstpart=begin("Less1st") + \
-            load_value(value1, 6, lineno) + \
+    here,jump = add_placestojump(1)
+    firstpart = load_value(value1, 6, lineno) + \
             load_value(value2, 7, lineno) + \
             "SUB 6 \n" +\
             "JZERO  " + jump[0] + "\n" + \
-            "JNEG " + jump[0] + "\n" + \
-            end("Less1st")
-    secondpart= begin("Less2nd") +\
-                here[0] +\
-                end("Less2nd")
+            "JNEG " + jump[0] + "\n"
+    secondpart = here[0]
     p[0] = ( firstpart
             ,secondpart)
 def p_condition_greater(p):
     '''condition	: value GE value'''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    here = add_placestojump(1)
-    jump = add_jumps(1)
-    firstpart=begin("greater1st") + \
-            load_value(value1, 6, lineno) + \
+    here,jump = add_placestojump(1)
+    firstpart = load_value(value1, 6, lineno) + \
             load_value(value2, 7, lineno) + \
             "SUB 6 \n" +\
             "JZERO  " + jump[0] + "\n" + \
-            "JPOS " + jump[0] + "\n" + \
-              end("greater1s")
-    secondpart= begin("greater2nd") +\
-                here[0] +\
-                end("greater2nd")
+            "JPOS " + jump[0] + "\n"
+    secondpart = here[0]
 
     p[0] = ( firstpart
             ,secondpart)
@@ -542,35 +636,24 @@ def p_condition_greater(p):
 def p_condition_lessoreq(p):
     '''condition	: value LEQ value'''
     value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-    here = add_placestojump(1)
-    jump = add_jumps(1)
-    firstpart = begin("Lesseq1st") + \
-                load_value(value1, 6, lineno) + \
+    here,jump = add_placestojump(1)
+    firstpart =  load_value(value1, 6, lineno) + \
                 load_value(value2, 7, lineno) + \
                 "SUB 6 \n" + \
-                "JNEG " + jump[0] + "\n" + \
-                end("Lesseq1st")
-    secondpart = begin("Lesseq2nd") + \
-                 here[0] + \
-                 end("Lesseq2nd")
-
+                "JNEG " + jump[0] + "\n"
+    secondpart = here[0]
     p[0] = (firstpart
             , secondpart)
 
 def p_condition_greateroreq(p):
      '''condition	: value GEQ value'''
      value1, value2, lineno = p[1], p[3], str(p.lineno(1))
-     here = add_placestojump(1)
-     jump = add_jumps(1)
-     firstpart=begin("greater1st") + \
-            load_value(value1, 6, lineno) + \
+     here,jump = add_placestojump(1)
+     firstpart=load_value(value1, 6, lineno) + \
             load_value(value2, 7, lineno) + \
             "SUB 6 \n" +\
-            "JPOS " + jump[0] + "\n" + \
-              end("greater1s")
-     secondpart= begin("greater2nd") +\
-                here[0] +\
-                end("greater2nd")
+            "JPOS " + jump[0] + "\n"
+     secondpart= here[0]
      p[0] = ( firstpart
             ,secondpart)
 
@@ -588,15 +671,12 @@ def p_value_id(p):
 
 
 # end #
-
-
-
 # identifier ->  . . . #
 
 def p_identifier_id(p):
     ''' identifier	: ID '''
-    p[0] = ("id", p[1])
 
+    p[0] = ("id", p[1])
 
 def p_identifier_id_in_arr(p):
     ''' identifier	: ID LBR ID RBR '''
@@ -608,7 +688,6 @@ def p_identifier_arr(p):
     p[0] = ("tab", p[1], ("n", p[3]))
 
 
-# end #
 
 
 
@@ -621,7 +700,7 @@ def p_error(p):
 def isarraydeclared(id, lineno):
     if id not in arrays_declared:
         raise Exception("błąd linia " + lineno + ': użycie niezainicjowanej zmiennej tablicowej' + str(id))
-
+    return True;
 
 def isvaluedeclared(id, lineno):
     if id not in values_declared:
@@ -635,20 +714,17 @@ def isvalueinit(id, lineno):
 
 ## PRZETWARZANIE KOMENTARZY DLA JUMPÓW ##
 
-def add_jumps(count):
+
+def add_placestojump(count):
+    jumphere = []
     jumps = []
     for i in range(0, count):
         labels_val.append(-1)
         num = str(len(labels_val) - 1)
-        jumps.append(" #JUMP" + num + "# ")
-    return jumps
-def add_placestojump(count):
-    jumphere = []
-    for i in range(0, count):
-        labels_val.append(-1)
-        num = str(len(labels_val) - 1)
-        jumphere.append(" #HERE" + num + "# ")
-    return jumphere
+        jumphere.append(" #H" + num + "# ")
+        jumps.append(" #J" + num + "# ")
+
+    return (jumphere,jumps)
 
 
 def replace_jumps(program):
@@ -656,88 +732,28 @@ def replace_jumps(program):
     removed_labels = []
     for line in program.split("\n"):
 
-        for matched in re.finditer("#HERE[0-9]+#", line):
-            label_id = int(matched.group()[5:-1])
+        for matched in re.finditer("#H[0-9]+#", line):
+            label_id = int(matched.group()[2:-1])
             labels_val[label_id] = line_num
-        line = re.sub("#HERE[0-9]+#", "", line)
+        line = re.sub("#H[0-9]+#", "", line)
         removed_labels.append(line)
         line_num += 1
 
     removed_jumps = ""
     for line in removed_labels:
-        match = re.search("#JUMP[0-9]+#", line)
+        match = re.search("#J[0-9]+#", line)
         if match is not None:
-            jump_id = int(match.group()[5:-1])
+            jump_id = int(match.group()[2:-1])
             jump_line = labels_val[jump_id]
-            line = re.sub("#JUMP[0-9]+#", str(jump_line), line)
+            line = re.sub("#J[0-9]+#", str(jump_line), line)
         removed_jumps += line + "\n"
     return removed_jumps
-
-
-def clearReg(reg):
-    return "SUB 0 \n" +\
-            "STORE "  + str(reg) + "\n"
-
-def   clearRegs():
-    a="SUB 0 \n"
-    for i in range(10):
-        a = a + " STORE " + str(i+3) + " \n"
-    return a
-
-
-
-def load_value(value,pos,lineno):
-    if value[0] == "n":
-        return begin("LOAD_CONST") + \
-               str(generate_const_and_Store(int(value[1]), pos)) + \
-               end("LOAD_CONST")
-    if value[0] == "id":
-        isvalueinit(value[1], lineno)
-        stri=("STORE " + str(pos) + "\n") if pos != 0 else ""
-        return begin("LOAD_VAR") + \
-           str(load_value_addr(value, lineno)) + \
-           "LOADI 4"   + "\n" + \
-            stri+\
-           end("LOAD_VAR")
-    if value[0] == "tab":
-        isvalueinit(value[1], lineno)
-        stri = ("STORE " + str(pos) + "\n") if pos != 0 else ""
-        return begin("LOAD_VAR") + \
-               str(load_value_addr(value, lineno)) + \
-               "LOADI 4" + "\n" + \
-               stri + \
-               end("LOAD_VAR")
-
-def load_value_addr(value,lineno):
-    if value[0] == "id":
-        isvaluedeclared(value[1], lineno)
-        return begin("LOAD_VAR_ADDR") + \
-               str(generate_const_and_Store(values_declared[value[1]], 4)) + \
-               end("LOAD_VAR_ADDR")
-    elif value[0] == "tab":
-        isarraydeclared(value[1], lineno)
-        tab_pos, tab_start, tab_stop = arrays_declared[value[1]]
-        cell_index = value[2]
-        return begin("LOAD_TAB_ADDR") + \
-               str(load_value(cell_index, 3, lineno)) + \
-               str(generate_const_and_Store(tab_start, 5)) + \
-               "SUB 0 " + "\n" + \
-               "LOAD 3 " + "\n" + \
-               "SUB 5" + "\n" + \
-               "STORE 3" + "\n" + \
-               str(generate_const_and_Store(tab_pos, 5)) + \
-               "SUB 0 " + "\n" + \
-               "LOAD 3" + "\n" + \
-               "ADD 5" + "\n" + \
-               "STORE 4" + "\n" + \
-               end("LOAD_TAB_ADDR")
-
 
 parser = yacc.yacc()
 f = open(sys.argv[1], "r")
 parsed = ""
 try:
-    parsed = parser.parse(f.read(), tracking=True)
+    parsed = parser.parse(f.read())
 except Exception as e:
     print(e)
     fw = open(sys.argv[2], "w")
